@@ -35,7 +35,7 @@ strong { font-weight:700; }
 <header><h1>BookManager ローカルAPI</h1><p class="muted">eBookJapanとの購入済み照会・書籍登録・更新・表紙保存のためのローカル連携</p><p>（2026-10-18）</p></header>
 <div class="tip"><strong>はじめに：</strong>BookManagerの起動中に限り、ブラウザーのUserscriptがBookManagerのデータへアクセスできます。BookManagerを終了するとAPIも停止します。</div>
 <h2>1. 何ができるの？</h2>
-<p>電子書籍サイトの作品について、BookManagerに登録した他社購入情報を確認したり、書籍情報をBookManagerへ登録・更新したりできます。今回のコードには一括購入済み照会と表紙画像のアップロード処理も含まれています。</p>
+<p>電子書籍サイトの作品について、BookManagerに登録した他社購入情報を確認したり、書籍情報をBookManagerへ登録・更新したりできます。今回のコードには一括購入済み照会と表紙画像のアップロード処理も含まれています。一例として以下の操作が可能です。</p>
 <ul><li>購入済み確認：該当電子書籍サービス以外に同タイトル・同巻の登録があるか照会</li><li>一括確認：複数タイトル・巻数をまとめて照会し、一覧表示を高速化</li><li>書籍の検索・登録・編集：タイトル、著者、出版社、ラベル、サービス、URL、状態など</li><li>表紙保存：画像をbase64で送信し、BookManagerの<code>images/</code>へ保存</li></ul>
 <h2>2. 導入・動作確認</h2>
 <ol><li>BookManagerを起動します。ローカルAPIはアプリ側のライフサイクルに従って起動・停止します。</li><li>ブラウザーにUserscript管理拡張（例：Tampermonkey、Violentmonkey）を導入し、対応する電子書籍サービス連携スクリプトを有効にします。</li><li>ブラウザーで <a href="http://127.0.0.1:8765/api/health"><code>http://127.0.0.1:8765/api/health</code></a> にアクセスして稼働確認します。</li></ol>
@@ -51,7 +51,7 @@ strong { font-weight:700; }
 <tr><td>POST</td><td><code>/api/book</code></td><td>新規書籍登録</td></tr>
 <tr><td>POST / PUT</td><td><code>/api/book/{id}</code></td><td>既存書籍を更新（更新可能項目に制約あり）</td></tr>
 <tr><td>POST</td><td><code>/api/cover/upload</code></td><td>base64表紙画像を保存し相対パスを返す</td></tr>
-<tr><td>GET / POST / DELETE</td><td><code>/api/book/{id}/image</code><br><code>/api/book/{id}/tags</code></td><td><strong>コード中に補助処理は存在しますが現行ルートは未完成です。</strong>詳細は「実装上の注意」を参照</td></tr>
+<tr><td>GET / POST / DELETE</td><td><code>/api/book/{id}/image</code><br><code>/api/book/{id}/tags</code></td><td><strong>{id}以降の image・tags を厳密に解釈してルーティングします。</strong></td></tr>
 </tbody></table>
 <h2>4. 他社購入済み確認</h2>
 <h3>GET /api/book-status</h3>
@@ -98,6 +98,8 @@ Content-Type: application/json
   "author": "著者名",
   "publisher": "出版社名",
   "label": "レーベル名",
+  "isbn": "9780306406157",
+  "list_price": 660,
   "service": "ebookjapan",
   "url": "https://ebookjapan.yahoo.co.jp/books/…/",
   "status": "未読",
@@ -107,17 +109,17 @@ Content-Type: application/json
 }</code></pre>
 <pre><code>HTTP 201
 {"id": 123, "message": "created"}</code></pre>
-<p>登録可能な主な項目は<code>title / volume / series / author / publisher / label / service / url / cover_path / bookCd / book_cd / open_target / status / completed / favorite / memo</code>です。<code>title</code>は必須。<code>cover_path</code>は<code>images/</code>に続く許可文字列に制限されます。<code>tags</code>や<code>imageFile</code>も入力を受け取る記述がありますが、<strong>新規登録処理ではタグ関連付けと画像URLの保存は実施していません</strong>。</p>
+<p>登録可能な主な項目は<code>title / volume / series / author / publisher / label / isbn / list_price / service / url / cover_path / bookCd / book_cd / open_target / status / completed / favorite / memo</code>です。<code>title</code>は必須。<code>isbn</code>はチェックディジットを検証し、ISBN-10はISBN-13へ正規化します。<code>list_price</code>は円単位の0以上の整数または<code>null</code>です。<code>cover_path</code>は<code>images/</code>に続く許可文字列に制限されます。<code>tags</code>や<code>imageFile</code>も入力を受け取る記述がありますが、<strong>新規登録処理ではタグ関連付けと画像URLの保存は実施していません</strong>。</p>
 <p>同一タイトル・巻数・サービスの候補が見つかった場合は新規登録せず、<code>HTTP 400</code>で<code>duplicate_found</code>、既存の<code>id</code>などを返します。内部では<code>LIKE</code>を使った検査である点に注意してください。</p>
 <h2>7. 既存書籍の更新</h2>
 <h3>POST /api/book/{id} または PUT /api/book/{id}</h3>
 <pre><code>PUT http://127.0.0.1:8765/api/book/123
 Content-Type: application/json
 
-{"title": "サンプル作品", "status": "読了", "memo": "更新例"}</code></pre>
+{"title": "サンプル作品", "status": "読了", "isbn": null, "list_price": 660, "memo": "更新例"}</code></pre>
 <pre><code>HTTP 200
 {"updated": true}</code></pre>
-<p>現行コードでは指定された一部フィールドだけを更新します。<strong><code>volume</code>は更新対象に含まれていません。</strong>また、<code>imageFile</code>等の一部入力は実際のDB列と一致しない可能性があるため、表紙変更には<code>/api/cover/upload</code>で保存した相対パスを<code>cover_path</code>として使用してください。</p>
+<p>指定された一部フィールドだけを更新します。<code>volume</code>、<code>isbn</code>、<code>list_price</code>も更新できます。ISBN/定価に<code>null</code>を指定すると値を消去します。ISBNと定価は登録時と同じ形式検証を行います。また、表紙変更には<code>/api/cover/upload</code>で保存した相対パスを<code>cover_path</code>として使用してください。</p>
 <p>作成・更新が正常終了した際には、BookManagerのサービスオブジェクトがある場合、画面更新イベントを発行する処理があります。</p>
 <h2>8. 表紙画像のアップロード</h2>
 <h3>POST /api/cover/upload</h3>
@@ -141,8 +143,8 @@ Content-Type: application/json
 <h2>10. 実装上の注意（アップロード版コードで確認）</h2>
 <div class="warning"><strong>重要：</strong>ここはAPIの動作保証ではなく、アップロードされたPython実装との照合結果です。HTMLの編集だけではPython側の問題は解消しません。</div>
 <ul>
-<li><strong>表紙・タグのサブルート：</strong><code>/api/book/{id}/image</code>と<code>/api/book/{id}/tags</code>は<code>{id}</code>として<code>123/image</code>等を整数変換してしまうため、現状は正しくルーティングできません。</li>
-<li><strong>DELETE：</strong><code>do_DELETE_tags</code>の補助関数はありますが、HTTPの<code>do_DELETE</code>は定義されていないため、タグ削除APIは使用できません。</li>
+<li><strong>表紙・タグのサブルート：</strong><code>/api/book/{id}/image</code>と<code>/api/book/{id}/tags</code>は正規表現で厳密に解釈され、<code>{id}</code>とサルートを正しく区別してルーティングします。</li>
+<li><strong>DELETE：</strong><code>do_DELETE</code>が定義され、<code>/api/book/{id}/tags</code> の削除に対応しています。他のサルートへの DELETE は 404 を返します。</li>
 <li><strong>巻数更新：</strong><code>POST/PUT /api/book/{id}</code>の更新可能フィールドに<code>volume</code>が含まれていません。</li>
 <li><strong>重複判定：</strong>検索には<code>LIKE</code>が使われる箇所があり、厳密な完全一致ではありません。入力によって過検出する可能性があります。</li>
 <li><strong>一括照会：</strong><code>POST /api/book-status/batch</code>は正常にルーティングされますが、<code>status</code>（未購入など）に基づく所有判定は行いません。</li>
@@ -150,5 +152,3 @@ Content-Type: application/json
 </ul>
 <h2>11. エラー形式</h2>
 <p>エラーは原則JSONで返ります。例：<code>{"error":"title_required"}</code>、<code>{"error":"invalid_json"}</code>、<code>{"error":"database_error"}</code>、<code>{"error":"origin_not_allowed"}</code>。重複時は<code>code: "duplicate_found"</code>など追加情報を返します。400、403、404、413、500などのHTTPステータスを使用します。</p>
-<p class="note">この文書はアップロード版 <code>local_api.py</code> の静的コード確認に基づく説明です。実環境のBookManagerデータベースやUserscriptとの結合テストは行っていません。</p>
-</article></main></body></html>
